@@ -1,150 +1,59 @@
 /* global require console process Promise module */
 
-const express = require('express'),
-  app = express();
+const express = require('express');
+const { shopifyApi, ApiVersion } = require('@shopify/shopify-api');
+require('@shopify/shopify-api/adapters/node');
+require('dotenv').config();
+const app = express();
 
-function getRandomInt(max) {
-  return Math.floor(Math.random() * Math.floor(max));
-}
+const shopify = shopifyApi({
+  apiKey: process.env.SHOPIFY_API_KEY,
+  apiSecretKey: process.env.SHOPIFY_API_SECRET,
+  apiVersion: ApiVersion.July25,
+  isEmbeddedApp: false,
+  scopes: ['read_products'],
+  hostName: process.env.SHOPIFY_SHOP.replace(/^https?:\/\//, ''),
+});
 
-function getTail() {
-  let c = [
-    'a',
-    'b',
-    'c',
-    'd',
-    'e',
-    'f',
-    'g',
-    'h',
-    'i',
-    'j',
-    'k',
-    'l',
-    'm',
-    'n',
-    'o',
-    'p',
-    'q',
-    'r',
-    's',
-    't',
-    'u',
-    'v',
-    'w',
-    'x',
-    'y',
-    'z'
-  ];
-  return `N${getRandomInt(9999)}${c[getRandomInt(c.length - 1)]}`;
-}
-
-function getAirline() {
-  const airlines = [
-    'SWA',
-    'AAL',
-    'BAW',
-    'DAL',
-    'UAE',
-    'KLM',
-    'DLH',
-    'ASA',
-    'UAL',
-    'FDX',
-    'PXM',
-    'SKW',
-    'JBU',
-    'ACA',
-    'QXE',
-    'NKS',
-    'VIR',
-    'LXJ',
-    'QFA'
-  ];
-  return airlines[getRandomInt(airlines.length - 1)];
-}
-
-function getTime() {
-  return '01:23';
-}
-
-function getFlight() {
-  return getRandomInt(2000);
-}
-
-function getHeading() {
-  return getRandomInt(359)
-    .toString()
-    .padStart(3, '0');
-}
-
-function getGate() {
-  const t = ['A', 'B', 'C'][getRandomInt(2)];
-  const g = getRandomInt(30);
-  return `${t}${g}`;
-}
-
-function getCity() {
-  const cities = [
-    'Atlanta',
-    'Baltimore',
-    'Charleston',
-    'Durban',
-    'Edinburgh',
-    'Frankfurt',
-    'Galveston',
-    'Havana',
-    'Iowa City',
-    'Jakarta',
-    'Karachi',
-    'Los Angeles',
-    'Mexico City',
-    'Nairobi',
-    'Ontario',
-    'Pittsburgh',
-    'Quebec City',
-    'Roanoake',
-    'San Diego',
-    'Tallahassee'
-  ];
-  return cities[getRandomInt(20)];
-}
-
-function getTime() {
-  let hrs = getRandomInt(23)
-    .toString()
-    .padStart(2, '0');
-  let mins = getRandomInt(59)
-    .toString()
-    .padStart(2, '0');
-  return `${hrs}${mins}`;
+async function getShopifyProductsByCollection(collectionId) {
+  const session = {
+    shop: process.env.SHOPIFY_SHOP,
+    accessToken: process.env.SHOPIFY_API_ACCESS_TOKEN
+  };
+  const client = new shopify.clients.Rest({ session });
+  try {
+    const response = await client.get({
+      path: `collections/${collectionId}/products`
+    });
+    return response.body.products;
+  } catch (error) {
+    console.error('Error fetching products by collection:', error);
+    return [];
+  }
 }
 
 // ========================================================================
 // API
 
-app.use('/api/arrivals', (req, res) => {
+app.use('/api/workshops', async (req, res) => {
   let r = {
     data: []
   };
 
-  for (let i = 0; i < 18; i++) {
-    // Create the data for a row.
+  const products = await getShopifyProductsByCollection(process.env.SHOPIFY_COLLECTION_ID);
+  const activeProducts = products.filter(product => product.status === 'active');
+
+  for (let i = 0; i < activeProducts.length; i++) {
+    let product = activeProducts[i];
     let data = {
-      airline: getAirline(),
-      flight: getFlight(),
-      city: getCity(),
-      gate: getGate(),
-      scheduled: getTime()
+      date: product.created_at ? product.created_at.slice(5, 10).replace('-', '') : '',
+      time: product.published_at ? product.published_at.slice(11, 16).replace(':', '') : '',
+      class: product.title || ''
     };
 
-    // Let's add an occasional delayed flight.
-    data.status = getRandomInt(10) > 7 ? 'B' : 'A';
-    if (data.status === 'B') {
-      data.remarks = `Delayed ${getRandomInt(50)}M`;
-    }
+    // Mark some as sold out
+    data.status = (product.variants && product.variants[0] && product.variants[0].inventory_quantity > 0) ? 'A' : 'B';
 
-    // Add the row the the response.
     r.data.push(data);
   }
 
