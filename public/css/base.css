@@ -6,7 +6,6 @@ body {
 }
 a {
   color: rgb(255, 204, 0);
-  /* text-decoration: none; */
 }
 .splitflap {
   width: 1920px;
@@ -25,7 +24,7 @@ h2 {
 }
 .splitflap .header {
   float: left;
-  font-size: 1.3em;
+  font-size: 2em;
   font-weight: bold;
   text-align: center;
   margin-bottom: 20px;
