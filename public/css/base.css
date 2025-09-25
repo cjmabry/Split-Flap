@@ -2,6 +2,7 @@ body {
   background: #0f0f0f;
   color: #fff;
   font-family: helvetica, sans-serif;
+  overflow: hidden;
 }
 a {
   color: rgb(255, 204, 0);
