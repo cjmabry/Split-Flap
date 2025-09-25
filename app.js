@@ -6,6 +6,7 @@ require('@shopify/shopify-api/adapters/node');
 require('dotenv').config();
 const app = express();
 
+
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
@@ -15,21 +16,71 @@ const shopify = shopifyApi({
   hostName: process.env.SHOPIFY_SHOP.replace(/^https?:\/\//, ''),
 });
 
+// async function getShopifyProductsByCollection(collectionId) {
+//   const session = {
+//     shop: process.env.SHOPIFY_SHOP,
+//     accessToken: process.env.SHOPIFY_API_ACCESS_TOKEN
+//   };
+//   const client = new shopify.clients.Rest({ session });
+//   try {
+//     const response = await client.get({
+//       path: `collections/${collectionId}/products`
+//     });
+//     return response.body.products;
+//   } catch (error) {
+//     console.error('Error fetching products by collection:', error);
+//     return [];
+//   }
+// }
+
 async function getShopifyProductsByCollection(collectionId) {
   const session = {
     shop: process.env.SHOPIFY_SHOP,
     accessToken: process.env.SHOPIFY_API_ACCESS_TOKEN
   };
-  const client = new shopify.clients.Rest({ session });
-  try {
-    const response = await client.get({
-      path: `collections/${collectionId}/products`
-    });
-    return response.body.products;
-  } catch (error) {
-    console.error('Error fetching products by collection:', error);
-    return [];
-  }
+  const client = new shopify.clients.Graphql({
+    session,
+    apiVersion: ApiVersion.July25,
+  });
+
+  const response = await client.request(
+    `{
+      collection(id: "gid://shopify/Collection/${process.env.SHOPIFY_COLLECTION_ID}") {
+        products(first: 100) {
+          edges {
+            node {
+              id
+              title
+              descriptionHtml
+              status
+              variants(first: 1) {
+                edges {
+                  node {
+                    inventoryQuantity
+                  }
+                }
+              }
+              metafields(first: 3, namespace: "custom") {
+                edges {
+                  node {
+                    namespace
+                    key
+                    value
+                  }
+                }
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }`,
+  );
+
+  return response.data.collection.products.edges.map(edge => edge.node);
 }
 
 // ========================================================================
@@ -41,18 +92,80 @@ app.use('/api/workshops', async (req, res) => {
   };
 
   const products = await getShopifyProductsByCollection(process.env.SHOPIFY_COLLECTION_ID);
-  const activeProducts = products.filter(product => product.status === 'active');
 
-  for (let i = 0; i < activeProducts.length; i++) {
-    let product = activeProducts[i];
+  for (const product of products) {
+    // skip anything in draft stage
+    if (product.status !== 'ACTIVE') {
+      continue;
+    }
+
+    // start building data object
     let data = {
-      date: product.created_at ? product.created_at.slice(5, 10).replace('-', '') : '',
-      time: product.published_at ? product.published_at.slice(11, 16).replace(':', '') : '',
-      class: product.title || ''
+      id: product.id,
+      class: product.title
     };
 
-    // Mark some as sold out
-    data.status = (product.variants && product.variants[0] && product.variants[0].inventory_quantity > 0) ? 'A' : 'B';
+    // Populate date and time from product metafields
+    if (product.metafields && product.metafields.edges) {
+      product.metafields.edges.forEach(({ node }) => {
+        try {
+          if (node.key !== 'date_and_time') {
+            return;
+          }
+          const values = JSON.parse(node.value);
+          if (Array.isArray(values)) {
+            values.forEach(val => {
+              // convert datetime to our expected format
+              const dateObj = new Date(val); // val is "2025-05-02T23:00:00Z"
+              const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+              data.month = month;
+
+              const day = String(dateObj.getUTCDate()).padStart(2, '0');
+              const dateStr = `${day}`;
+
+              let hours = dateObj.getUTCHours();
+              const minutes = String(dateObj.getUTCMinutes()).padStart(2, '0');
+              const ampm = hours >= 12 ? 'pm' : 'am';
+              hours = hours % 12;
+              hours = hours === 0 ? 12 : hours;
+              const hoursStr = String(hours).padStart(2, '0'); // Add leading zero
+
+              data.date = `${month}${dateStr}`;
+              const timeStr = `${hoursStr}${minutes}${ampm}`; // removed colon
+              data.time = timeStr;
+            });
+          }
+        } catch (e) {
+          console.error('Error parsing metafield value:', e);
+        }
+      });
+    }
+
+    // Mark as sold out based on inventory quantity of first variant
+    if (
+      product.variants &&
+      product.variants.edges &&
+      product.variants.edges[0] &&
+      product.variants.edges[0].node &&
+      typeof product.variants.edges[0].node.inventoryQuantity !== 'undefined'
+    ) {
+      data.status = product.variants.edges[0].node.inventoryQuantity > 0 ? 'A' : 'B';
+    }
+
+    if (data.date) {
+      // Parse date from data.date (MMDD format)
+      const year = new Date().getUTCFullYear();
+      const month = parseInt(data.date.slice(0, 2), 10) - 1; // JS months are 0-based
+      const day = parseInt(data.date.slice(2, 4), 10);
+      const productDate = new Date(Date.UTC(year, month, day));
+
+      const today = new Date();
+      const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+
+      if (productDate < todayUTC) {
+        continue; // Skip this product if date is before today
+      }
+    }
 
     r.data.push(data);
   }
