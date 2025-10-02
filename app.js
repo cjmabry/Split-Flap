@@ -108,36 +108,42 @@ app.use('/api/workshops', async (req, res) => {
     // Populate date and time from product metafields
     if (product.metafields && product.metafields.edges) {
       product.metafields.edges.forEach(({ node }) => {
-        try {
-          if (node.key !== 'date_and_time') {
-            return;
-          }
-          const values = JSON.parse(node.value);
-          if (Array.isArray(values)) {
-            values.forEach(val => {
-              // convert datetime to our expected format
-              const dateObj = new Date(val); // val is "2025-05-02T23:00:00Z"
-              const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
-              data.month = month;
-
-              const day = String(dateObj.getUTCDate()).padStart(2, '0');
-              const dateStr = `${day}`;
-
-              let hours = dateObj.getUTCHours();
-              const minutes = String(dateObj.getUTCMinutes()).padStart(2, '0');
-              const ampm = hours >= 12 ? 'pm' : 'am';
-              hours = hours % 12;
-              hours = hours === 0 ? 12 : hours;
-              const hoursStr = String(hours).padStart(2, '0'); // Add leading zero
-
-              data.date = `${month}${dateStr}`;
-              const timeStr = `${hoursStr}${minutes}${ampm}`; // removed colon
-              data.time = timeStr;
-            });
-          }
-        } catch (e) {
-          console.error('Error parsing metafield value:', e);
+      try {
+        if (node.key !== 'date_and_time') {
+        return;
         }
+        const values = JSON.parse(node.value);
+        if (Array.isArray(values)) {
+        values.forEach(val => {
+          const utcDate = new Date(val); // val is "2025-05-02T23:00:00Z"
+          
+          // Convert to Central Time
+          const centralDate = new Date(utcDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+
+          const month = String(centralDate.getMonth() + 1).padStart(2, '0');
+          data.month = month;
+          data.year = String(centralDate.getFullYear());
+          
+          const day = String(centralDate.getDate()).padStart(2, '0');
+          const dateStr = `${day}`;
+
+          let hours = centralDate.getHours();
+          const minutes = String(centralDate.getMinutes()).padStart(2, '0');
+          const ampm = hours >= 12 ? 'pm' : 'am';
+          hours = hours % 12;
+          hours = hours === 0 ? 12 : hours;
+          const hoursStr = String(hours).padStart(2, '0'); // Add leading zero
+
+          data.date = `${month}${dateStr}`;
+          const timeStr = `${hoursStr}${minutes}${ampm}`; // removed colon
+          data.time = timeStr;
+          // Add full datetime in ISO format for sorting
+          data.fullDateTime = centralDate.toISOString();
+        });
+        }
+      } catch (e) {
+        console.error('Error parsing metafield value:', e);
+      }
       });
     }
 
@@ -152,9 +158,9 @@ app.use('/api/workshops', async (req, res) => {
       data.status = product.variants.edges[0].node.inventoryQuantity > 0 ? 'A' : 'B';
     }
 
-    if (data.date) {
-      // Parse date from data.date (MMDD format)
-      const year = new Date().getUTCFullYear();
+    if (data.date && data.year) {
+      // Parse date from data.date (MMDD format) and data.year
+      const year = parseInt(data.year, 10);
       const month = parseInt(data.date.slice(0, 2), 10) - 1; // JS months are 0-based
       const day = parseInt(data.date.slice(2, 4), 10);
       const productDate = new Date(Date.UTC(year, month, day));
@@ -163,7 +169,7 @@ app.use('/api/workshops', async (req, res) => {
       const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
 
       if (productDate < todayUTC) {
-        continue; // Skip this product if date is before today
+      continue; // Skip this product if date is before today
       }
     }
 
