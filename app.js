@@ -16,23 +16,6 @@ const shopify = shopifyApi({
   hostName: process.env.SHOPIFY_SHOP.replace(/^https?:\/\//, ''),
 });
 
-// async function getShopifyProductsByCollection(collectionId) {
-//   const session = {
-//     shop: process.env.SHOPIFY_SHOP,
-//     accessToken: process.env.SHOPIFY_API_ACCESS_TOKEN
-//   };
-//   const client = new shopify.clients.Rest({ session });
-//   try {
-//     const response = await client.get({
-//       path: `collections/${collectionId}/products`
-//     });
-//     return response.body.products;
-//   } catch (error) {
-//     console.error('Error fetching products by collection:', error);
-//     return [];
-//   }
-// }
-
 async function getShopifyProductsByCollection(collectionId) {
   const session = {
     shop: process.env.SHOPIFY_SHOP,
